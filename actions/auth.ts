@@ -12,7 +12,7 @@ export type LoginState = {
 const IDENTITY_API_URL =
   process.env.IDENTITY_API_URL ??
   process.env.NEXT_PUBLIC_IDENTITY_API_URL ??
-  "http://localhost:8002"
+  "http://localhost:8080/identity"
 
 function errorMessage(payload: unknown, fallback: string) {
   if (payload && typeof payload === "object" && "message" in payload) {
@@ -55,7 +55,7 @@ export async function loginAction(
   } catch {
     return {
       error:
-        "Không kết nối được identity-service. Kiểm tra service đang chạy ở cổng 8002.",
+        "Không kết nối được máy chủ. Vui lòng thử lại.",
     }
   }
 

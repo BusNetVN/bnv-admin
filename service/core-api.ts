@@ -5,12 +5,12 @@ import { parseAdminSession, SESSION_COOKIE } from "@/lib/auth"
 const CORE_API_URL =
   process.env.CORE_API_URL ??
   process.env.NEXT_PUBLIC_CORE_API_URL ??
-  "http://localhost:8001"
+  "http://localhost:8080/core"
 
 const IDENTITY_API_URL =
   process.env.IDENTITY_API_URL ??
   process.env.NEXT_PUBLIC_IDENTITY_API_URL ??
-  "http://localhost:8002"
+  "http://localhost:8080/identity"
 
 export class CoreApiError extends Error {
   constructor(
@@ -88,6 +88,6 @@ export function loadErrorMessage(
   }
 
   return service === "identity"
-    ? "Không kết nối được identity-service. Kiểm tra service đang chạy ở cổng 8002."
-    : "Không kết nối được core-service. Kiểm tra service đang chạy ở cổng 8001."
+    ? "Không kết nối được máy chủ identity. Vui lòng thử lại."
+    : "Không kết nối được máy chủ core. Vui lòng thử lại."
 }

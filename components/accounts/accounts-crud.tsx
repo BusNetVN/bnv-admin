@@ -97,12 +97,12 @@ type AccountsCrudProps = {
 
 const USERNAME_PATTERN = /^[a-z0-9]+(?:[._-]?[a-z0-9]+)*$/
 
-function isAccountType(value: string): value is AccountType {
-  return ACCOUNT_TYPES.some((item) => item.value === value)
+function isAccountType(value: string | null): value is AccountType {
+  return typeof value === "string" && ACCOUNT_TYPES.some((item) => item.value === value)
 }
 
-function isStaffRole(value: string): value is StaffRole {
-  return STAFF_ROLES.some((item) => item.value === value)
+function isStaffRole(value: string | null): value is StaffRole {
+  return typeof value === "string" && STAFF_ROLES.some((item) => item.value === value)
 }
 
 export function AccountsCrud({
