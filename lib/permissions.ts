@@ -7,7 +7,7 @@ import type {
   PermissionPayload,
 } from "@/types/permissions"
 
-export const PERMISSION_CODE_PATTERN = /^[A-Z][A-Z0-9]*(?:[._-][A-Z0-9]+)*$/
+export const PERMISSION_CODE_PATTERN = /^[A-Z][A-Z0-9]*(?:[_-][A-Z0-9]+)*$/
 
 export const STANDARD_PERMISSIONS = [
   { action: "CREATE", name: "Tạo" },

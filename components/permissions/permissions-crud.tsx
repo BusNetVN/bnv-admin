@@ -257,7 +257,7 @@ export function PermissionsCrud({
       nextErrors.code = "Vui lòng nhập mã nhóm."
     } else if (!PERMISSION_CODE_PATTERN.test(code)) {
       nextErrors.code =
-        "Mã nhóm chỉ gồm chữ hoa, số, dấu chấm, gạch ngang hoặc gạch dưới."
+        "Mã nhóm chỉ gồm chữ hoa, số, gạch ngang hoặc gạch dưới."
     } else {
       const duplicated = groups.some(
         (group) => group.code === code && group.id !== editingGroupId
@@ -297,7 +297,7 @@ export function PermissionsCrud({
       nextErrors.code = "Vui lòng nhập mã chức năng."
     } else if (!PERMISSION_CODE_PATTERN.test(code)) {
       nextErrors.code =
-        "Mã chức năng chỉ gồm chữ hoa, số, dấu chấm, gạch ngang hoặc gạch dưới."
+        "Mã chức năng chỉ gồm chữ hoa, số, gạch ngang hoặc gạch dưới."
     } else {
       const duplicated = groups.some((group) =>
         group.permissions.some(

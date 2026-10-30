@@ -28,19 +28,8 @@ export function apiErrorMessage(error: unknown, fallback: string) {
 
 async function parseError(response: Response) {
   try {
-    const body = (await response.json()) as ApiErrorResponse
-    const validationMessage = body.errors
-      ? Object.values(body.errors).flat().join(" ")
-      : undefined
-    const message = Array.isArray(body.message)
-      ? body.message.join(" ")
-      : body.message
-    return (
-      body.detail ||
-      validationMessage ||
-      message ||
-      `Yêu cầu thất bại (${response.status}).`
-    )
+    const body = (await response.json()) as Partial<ApiErrorResponse>
+    return body.error?.message || `Yêu cầu thất bại (${response.status}).`
   } catch {
     return `Yêu cầu thất bại (${response.status}).`
   }
