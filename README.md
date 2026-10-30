@@ -20,6 +20,22 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Browser API configuration
+
+The dashboard calls the Core API (core-service-nestjs, through nginx) directly
+from the browser. Set this public URL for the environment before starting or
+building the app:
+
+```env
+NEXT_PUBLIC_CORE_API_URL=http://localhost:8080/core
+```
+
+Because these requests are cross-origin when the API uses a different host or
+port, configure it to allow the dashboard's origin, the `Authorization`
+and `Content-Type` headers, and the HTTP methods used by the application.
+Authentication tokens are stored in browser storage so the frontend can send
+them as Bearer tokens.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

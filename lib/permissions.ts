@@ -1,59 +1,11 @@
-export type Permission = {
-  id: string
-  code: string
-  name: string
-  description: string
-  sort_order: number
-  status: boolean
-  created_at?: string
-  updated_at?: string
-}
-
-export type PermissionGroup = {
-  id: string
-  code: string
-  name: string
-  description: string
-  sort_order: number
-  status: boolean
-  permissions: Permission[]
-  created_at?: string
-  updated_at?: string
-}
-
-export type PermissionGroupInput = {
-  code: string
-  name: string
-  description: string
-  sort_order: string
-  status: boolean
-  seed_standard_permissions: boolean
-}
-
-export type PermissionGroupPayload = {
-  code: string
-  name: string
-  description: string
-  sort_order?: number
-  status: boolean
-  seed_standard_permissions?: boolean
-}
-
-export type PermissionInput = {
-  code: string
-  name: string
-  description: string
-  sort_order: string
-  status: boolean
-}
-
-export type PermissionPayload = {
-  code: string
-  name: string
-  description: string
-  sort_order?: number
-  status: boolean
-}
+import type {
+  Permission,
+  PermissionGroup,
+  PermissionGroupInput,
+  PermissionGroupPayload,
+  PermissionInput,
+  PermissionPayload,
+} from "@/types/permissions"
 
 export const PERMISSION_CODE_PATTERN = /^[A-Z][A-Z0-9]*(?:[._-][A-Z0-9]+)*$/
 
@@ -74,7 +26,7 @@ export function emptyPermissionGroupInput(): PermissionGroupInput {
     name: "",
     description: "",
     sort_order: "",
-    status: true,
+    is_active: true,
     seed_standard_permissions: true,
   }
 }
@@ -87,7 +39,7 @@ export function toPermissionGroupInput(
     name: group.name,
     description: group.description,
     sort_order: String(group.sort_order),
-    status: group.status,
+    is_active: group.is_active,
     seed_standard_permissions: false,
   }
 }
@@ -101,7 +53,7 @@ export function toPermissionGroupPayload(
     code: values.code.trim().toUpperCase(),
     name: values.name.trim(),
     description: values.description.trim(),
-    status: values.status,
+    is_active: values.is_active,
   }
 
   if (sortOrder) {
@@ -117,11 +69,11 @@ export function toPermissionGroupPayload(
 
 export function emptyPermissionInput(groupCode?: string): PermissionInput {
   return {
-    code: groupCode ? `${groupCode}.` : "",
+    code: groupCode ? `${groupCode}_` : "",
     name: "",
     description: "",
     sort_order: "",
-    status: true,
+    is_active: true,
   }
 }
 
@@ -131,7 +83,7 @@ export function toPermissionInput(item: Permission): PermissionInput {
     name: item.name,
     description: item.description,
     sort_order: String(item.sort_order),
-    status: item.status,
+    is_active: item.is_active,
   }
 }
 
@@ -141,7 +93,7 @@ export function toPermissionPayload(values: PermissionInput): PermissionPayload 
     code: values.code.trim().toUpperCase(),
     name: values.name.trim(),
     description: values.description.trim(),
-    status: values.status,
+    is_active: values.is_active,
   }
 
   if (sortOrder) {

@@ -1,10 +1,6 @@
-export const SESSION_COOKIE = "bnv_admin_session"
+import type { AdminSession } from "@/types/auth"
 
-export type AdminSession = {
-  username: string
-  access_token: string
-  refresh_token: string
-}
+export const SESSION_COOKIE = "bnv_admin_session"
 
 export function parseAdminSession(raw: string | undefined | null): AdminSession | null {
   if (!raw) {

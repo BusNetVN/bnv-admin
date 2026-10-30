@@ -1,9 +1,10 @@
 "use client"
 
-import { useActionState, useState } from "react"
+import { useState } from "react"
+import type { FormEvent } from "react"
+import { useRouter } from "next/navigation"
 import { EyeIcon, EyeOffIcon, Loader2Icon } from "lucide-react"
 
-import { loginAction } from "@/actions/auth"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -14,14 +15,53 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { login } from "@/service/auth"
+import { apiErrorMessage } from "@/service/core-api"
+import { useAuthStore } from "@/stores/auth-store"
 
 export function LoginForm() {
-  const [state, formAction, pending] = useActionState(loginAction, null)
+  const router = useRouter()
+  const setSession = useAuthStore((state) => state.setSession)
+  const [error, setError] = useState<string>()
+  const [pending, setPending] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [remember, setRemember] = useState(false)
 
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError(undefined)
+    setPending(true)
+
+    const formData = new FormData(event.currentTarget)
+    const username = String(formData.get("username") ?? "").trim()
+    const password = String(formData.get("password") ?? "")
+
+    try {
+      const response = await login(username, password)
+      if (
+        !response.access_token ||
+        response.account?.account_type !== "SYSTEM_ADMIN"
+      ) {
+        setError("Tài khoản không có quyền truy cập hệ thống quản trị.")
+        return
+      }
+
+      setSession(response, remember)
+      router.replace("/dashboard")
+    } catch (submitError) {
+      setError(
+        apiErrorMessage(
+          submitError,
+          "Không đăng nhập được. Vui lòng thử lại."
+        )
+      )
+    } finally {
+      setPending(false)
+    }
+  }
+
   return (
-    <form action={formAction} className="flex flex-col gap-6">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-6">
       <FieldGroup>
         <Field>
           <FieldLabel htmlFor="username">Tên đăng nhập</FieldLabel>
@@ -73,7 +113,7 @@ export function LoginForm() {
           </FieldLabel>
         </Field>
 
-        {state?.error ? <FieldError>{state.error}</FieldError> : null}
+        {error ? <FieldError>{error}</FieldError> : null}
 
         <Field>
           <Button type="submit" className="h-10 w-full" disabled={pending}>

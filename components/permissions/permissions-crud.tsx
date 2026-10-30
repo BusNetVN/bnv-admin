@@ -1,10 +1,13 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
 import {
   ChevronDownIcon,
+  CircleCheckIcon,
+  CircleOffIcon,
   EyeIcon,
+  KeyRoundIcon,
+  LayersIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
@@ -13,14 +16,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
-import {
-  createPermissionAction,
-  createPermissionGroupAction,
-  deletePermissionAction,
-  deletePermissionGroupAction,
-  updatePermissionAction,
-  updatePermissionGroupAction,
-} from "@/actions/permissions"
+import { AuditInfo } from "@/components/audit-info"
+import { formatDateTime } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -78,27 +75,42 @@ import {
   toPermissionGroupPayload,
   toPermissionInput,
   toPermissionPayload,
-  type Permission,
-  type PermissionGroup,
-  type PermissionGroupInput,
-  type PermissionInput,
 } from "@/lib/permissions"
+import type {
+  Permission,
+  PermissionGroup,
+  PermissionGroupInput,
+  PermissionInput,
+} from "@/types/permissions"
+import {
+  createPermission,
+  createPermissionGroup,
+  deletePermission,
+  deletePermissionGroup,
+  updatePermission,
+  updatePermissionGroup,
+} from "@/service/permissions"
+import { apiErrorMessage } from "@/service/core-api"
 
 type FormMode = "create" | "edit" | "view"
 
 type PermissionsCrudProps = {
   groups: PermissionGroup[]
   loadError?: string
+  onRefresh?: () => Promise<void>
 }
 
 type DeletingTarget =
   | { type: "group"; item: PermissionGroup }
   | { type: "permission"; item: Permission; group: PermissionGroup }
 
-export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
-  const router = useRouter()
+export function PermissionsCrud({
+  groups,
+  loadError,
+  onRefresh,
+}: PermissionsCrudProps) {
   const [query, setQuery] = useState("")
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [groupOpen, setGroupOpen] = useState(false)
   const [groupMode, setGroupMode] = useState<FormMode>("create")
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
@@ -140,11 +152,22 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
     )
   }, [groups, query])
 
+  const stats = useMemo(() => {
+    const all = groups.flatMap((group) => group.permissions)
+    const active = all.filter((item) => item.is_active).length
+    return {
+      groups: groups.length,
+      permissions: all.length,
+      active,
+      inactive: all.length - active,
+    }
+  }, [groups])
+
   const isGroupReadOnly = groupMode === "view"
   const isPermissionReadOnly = permissionMode === "view"
 
   function toggleGroup(id: string) {
-    setCollapsed((current) => {
+    setExpanded((current) => {
       const next = new Set(current)
       if (next.has(id)) {
         next.delete(id)
@@ -303,15 +326,12 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
     const payload = toPermissionGroupPayload(groupForm, groupMode === "create")
     setPending(true)
     try {
-      const result =
-        groupMode === "create"
-          ? await createPermissionGroupAction(payload)
-          : editingGroupId
-            ? await updatePermissionGroupAction(editingGroupId, payload)
-            : { ok: false as const, message: "Không lưu được nhóm chức năng." }
-
-      if (!result.ok) {
-        toast.error(result.message)
+      if (groupMode === "create") {
+        await createPermissionGroup(payload)
+      } else if (editingGroupId) {
+        await updatePermissionGroup(editingGroupId, payload)
+      } else {
+        toast.error("Không lưu được nhóm chức năng.")
         return
       }
 
@@ -321,7 +341,11 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
           : "Đã cập nhật nhóm chức năng."
       )
       setGroupOpen(false)
-      router.refresh()
+      await onRefresh?.()
+    } catch (error) {
+      toast.error(
+        apiErrorMessage(error, "Không lưu được nhóm chức năng. Thử lại sau.")
+      )
     } finally {
       setPending(false)
     }
@@ -341,15 +365,12 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
     const payload = toPermissionPayload(permissionForm)
     setPending(true)
     try {
-      const result =
-        permissionMode === "create"
-          ? await createPermissionAction(activeGroup.id, payload)
-          : editingPermissionId
-            ? await updatePermissionAction(editingPermissionId, payload)
-            : { ok: false as const, message: "Không lưu được chức năng." }
-
-      if (!result.ok) {
-        toast.error(result.message)
+      if (permissionMode === "create") {
+        await createPermission(activeGroup.id, payload)
+      } else if (editingPermissionId) {
+        await updatePermission(editingPermissionId, payload)
+      } else {
+        toast.error("Không lưu được chức năng.")
         return
       }
 
@@ -357,7 +378,9 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
         permissionMode === "create" ? "Đã thêm chức năng." : "Đã cập nhật chức năng."
       )
       setPermissionOpen(false)
-      router.refresh()
+      await onRefresh?.()
+    } catch (error) {
+      toast.error(apiErrorMessage(error, "Không lưu được chức năng. Thử lại sau."))
     } finally {
       setPending(false)
     }
@@ -370,14 +393,10 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
 
     setPending(true)
     try {
-      const result =
-        deleting.type === "group"
-          ? await deletePermissionGroupAction(deleting.item.id)
-          : await deletePermissionAction(deleting.item.id)
-
-      if (!result.ok) {
-        toast.error(result.message)
-        return
+      if (deleting.type === "group") {
+        await deletePermissionGroup(deleting.item.id)
+      } else {
+        await deletePermission(deleting.item.id)
       }
 
       toast.success(
@@ -386,7 +405,9 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
           : `Đã xóa chức năng ${deleting.item.name}.`
       )
       setDeleting(null)
-      router.refresh()
+      await onRefresh?.()
+    } catch (error) {
+      toast.error(apiErrorMessage(error, "Không xóa được mục. Thử lại sau."))
     } finally {
       setPending(false)
     }
@@ -427,14 +448,59 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
         </Button>
       </div>
 
-      <div className="relative max-w-sm">
-        <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Tìm theo nhóm hoặc chức năng..."
-          className="pl-8"
-        />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative w-full max-w-sm">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Tìm theo nhóm hoặc chức năng..."
+            className="pl-8"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            {
+              label: "Nhóm",
+              value: stats.groups,
+              icon: LayersIcon,
+              tone: "bg-primary/10 text-primary",
+            },
+            {
+              label: "Chức năng",
+              value: stats.permissions,
+              icon: KeyRoundIcon,
+              tone: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+            },
+            {
+              label: "Hoạt động",
+              value: stats.active,
+              icon: CircleCheckIcon,
+              tone: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+            },
+            {
+              label: "Ngưng hoạt động",
+              value: stats.inactive,
+              icon: CircleOffIcon,
+              tone: "bg-muted text-muted-foreground",
+            },
+          ].map(({ label, value, icon: Icon, tone }) => (
+            <div
+              key={label}
+              className="flex items-center gap-3 rounded-xl border px-3 py-2"
+            >
+              <span
+                className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${tone}`}
+              >
+                <Icon className="size-4" />
+              </span>
+              <div className="min-w-0 leading-tight">
+                <p className="text-lg font-semibold tabular-nums">{value}</p>
+                <p className="truncate text-xs text-muted-foreground">{label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {filteredGroups.length === 0 ? (
@@ -446,7 +512,7 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
       ) : (
         <div className="space-y-3">
           {filteredGroups.map((group) => {
-            const isCollapsed = collapsed.has(group.id)
+            const isCollapsed = !expanded.has(group.id)
             return (
               <div key={group.id} className="overflow-hidden rounded-xl border">
                 <div className="flex items-center gap-2 px-3 py-2.5">
@@ -465,8 +531,8 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium">{group.name}</p>
                       <Badge variant="outline">{group.code}</Badge>
-                      <Badge variant={group.status ? "default" : "outline"}>
-                        {statusLabel(group.status)}
+                      <Badge variant={group.is_active ? "default" : "outline"}>
+                        {statusLabel(group.is_active)}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
                         {group.permissions.length} chức năng
@@ -477,6 +543,13 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
                         {group.description}
                       </p>
                     ) : null}
+                    <p className="text-xs text-muted-foreground">
+                      Tạo: {group.created_by || "—"} ·{" "}
+                      {formatDateTime(group.created_at)}
+                      <span className="mx-2">—</span>
+                      Cập nhật: {group.updated_by || "—"} ·{" "}
+                      {formatDateTime(group.updated_at)}
+                    </p>
                   </div>
                   <Button
                     variant="outline"
@@ -524,6 +597,10 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
                           Mô tả
                         </TableHead>
                         <TableHead>Trạng thái</TableHead>
+                        <TableHead className="hidden lg:table-cell">Tạo</TableHead>
+                        <TableHead className="hidden lg:table-cell">
+                          Cập nhật
+                        </TableHead>
                         <TableHead className="w-12 text-right"> </TableHead>
                       </TableRow>
                     </TableHeader>
@@ -531,7 +608,7 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
                       {group.permissions.length === 0 ? (
                         <TableRow>
                           <TableCell
-                            colSpan={5}
+                            colSpan={7}
                             className="h-16 text-center text-muted-foreground"
                           >
                             Nhóm chưa có chức năng.
@@ -551,10 +628,22 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
                             </TableCell>
                             <TableCell>
                               <Badge
-                                variant={item.status ? "default" : "outline"}
+                                variant={item.is_active ? "default" : "outline"}
                               >
-                                {statusLabel(item.status)}
+                                {statusLabel(item.is_active)}
                               </Badge>
+                            </TableCell>
+                            <TableCell className="hidden lg:table-cell">
+                              <AuditInfo
+                                username={item.created_by}
+                                timestamp={item.created_at}
+                              />
+                            </TableCell>
+                            <TableCell className="hidden lg:table-cell">
+                              <AuditInfo
+                                username={item.updated_by}
+                                timestamp={item.updated_at}
+                              />
                             </TableCell>
                             <TableCell className="text-right">
                               <DropdownMenu>
@@ -692,18 +781,18 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
             </Field>
 
             <Field>
-              <FieldLabel htmlFor="group-status">Trạng thái</FieldLabel>
+              <FieldLabel htmlFor="group-is-active">Trạng thái</FieldLabel>
               <div className="flex h-8 items-center gap-2">
                 <Switch
-                  id="group-status"
-                  checked={groupForm.status}
+                  id="group-is-active"
+                  checked={groupForm.is_active}
                   onCheckedChange={(checked) =>
-                    updateGroupField("status", checked)
+                    updateGroupField("is_active", checked)
                   }
                   disabled={isGroupReadOnly}
                 />
                 <span className="text-sm text-muted-foreground">
-                  {statusLabel(groupForm.status)}
+                  {statusLabel(groupForm.is_active)}
                 </span>
               </div>
             </Field>
@@ -781,7 +870,7 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
                     updatePermissionField("code", event.target.value.toUpperCase())
                   }
                   placeholder={
-                    activeGroup ? `${activeGroup.code}.CREATE` : "ACCOUNTS.CREATE"
+                    activeGroup ? `${activeGroup.code}_CREATE` : "USER_CREATE"
                   }
                   disabled={isPermissionReadOnly}
                   aria-invalid={Boolean(permissionErrors.code)}
@@ -823,18 +912,18 @@ export function PermissionsCrud({ groups, loadError }: PermissionsCrudProps) {
             </Field>
 
             <Field>
-              <FieldLabel htmlFor="permission-status">Trạng thái</FieldLabel>
+              <FieldLabel htmlFor="permission-is-active">Trạng thái</FieldLabel>
               <div className="flex h-8 items-center gap-2">
                 <Switch
-                  id="permission-status"
-                  checked={permissionForm.status}
+                  id="permission-is-active"
+                  checked={permissionForm.is_active}
                   onCheckedChange={(checked) =>
-                    updatePermissionField("status", checked)
+                    updatePermissionField("is_active", checked)
                   }
                   disabled={isPermissionReadOnly}
                 />
                 <span className="text-sm text-muted-foreground">
-                  {statusLabel(permissionForm.status)}
+                  {statusLabel(permissionForm.is_active)}
                 </span>
               </div>
             </Field>

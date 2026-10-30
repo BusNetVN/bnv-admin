@@ -1,16 +1,17 @@
-import { cookies } from "next/headers"
+import type { ApiEnvelope, ApiErrorResponse } from "@/types/api"
+import type { LoginResponse } from "@/types/auth"
+import { useAuthStore } from "@/stores/auth-store"
 
-import { parseAdminSession, SESSION_COOKIE } from "@/lib/auth"
+const REFRESH_PATH = "/api/admin/auth/refresh"
+const REFRESH_LOCK = "bnv-admin-auth-refresh"
+/** The server rejected the refresh token itself; anything else (5xx, offline) may be retried. */
+const REJECTED_REFRESH_STATUSES = new Set([400, 401, 403])
+const SESSION_EXPIRED_MESSAGE =
+  "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
 
-const CORE_API_URL =
-  process.env.CORE_API_URL ??
+export const CORE_API_URL =
   process.env.NEXT_PUBLIC_CORE_API_URL ??
   "http://localhost:8080/core"
-
-const IDENTITY_API_URL =
-  process.env.IDENTITY_API_URL ??
-  process.env.NEXT_PUBLIC_IDENTITY_API_URL ??
-  "http://localhost:8080/identity"
 
 export class CoreApiError extends Error {
   constructor(
@@ -21,47 +22,148 @@ export class CoreApiError extends Error {
   }
 }
 
+export function apiErrorMessage(error: unknown, fallback: string) {
+  return error instanceof CoreApiError ? error.message : fallback
+}
+
 async function parseError(response: Response) {
   try {
-    const body = (await response.json()) as { message?: string | string[] }
+    const body = (await response.json()) as ApiErrorResponse
+    const validationMessage = body.errors
+      ? Object.values(body.errors).flat().join(" ")
+      : undefined
     const message = Array.isArray(body.message)
       ? body.message.join(" ")
       : body.message
-    return message || `Yêu cầu thất bại (${response.status}).`
+    return (
+      body.detail ||
+      validationMessage ||
+      message ||
+      `Yêu cầu thất bại (${response.status}).`
+    )
   } catch {
     return `Yêu cầu thất bại (${response.status}).`
   }
 }
 
-async function accessToken() {
-  const raw = (await cookies()).get(SESSION_COOKIE)?.value
-  return parseAdminSession(raw)?.access_token ?? null
+export async function accessToken() {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  const { getAccessToken, refreshToken } = useAuthStore.getState()
+  return getAccessToken() ?? (refreshToken ? refreshAccessToken() : null)
 }
 
-export async function request<T>(
-  path: string,
-  init?: RequestInit,
-  baseUrl = CORE_API_URL
-): Promise<T> {
-  const headers = new Headers(init?.headers)
-  if (!headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json")
+let pendingRefresh: Promise<string | null> | null = null
+
+/**
+ * Exchanges the refresh token for new tokens. The server revokes the whole session when a
+ * refresh token is used twice, so concurrent callers (and other tabs) share one refresh.
+ */
+export function refreshAccessToken() {
+  pendingRefresh ??= withRefreshLock(rotateTokens).finally(() => {
+    pendingRefresh = null
+  })
+  return pendingRefresh
+}
+
+async function withRefreshLock<T>(task: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    return navigator.locks.request(REFRESH_LOCK, task)
+  }
+  return task()
+}
+
+async function rotateTokens() {
+  const knownRefreshToken = useAuthStore.getState().refreshToken
+  // Another tab may have rotated the tokens while this one waited for the lock.
+  await useAuthStore.persist.rehydrate()
+  const { refreshToken, getAccessToken, updateTokens, clearSession } =
+    useAuthStore.getState()
+  if (!refreshToken) {
+    return null
+  }
+  if (refreshToken !== knownRefreshToken && getAccessToken()) {
+    return getAccessToken()
   }
 
-  const token = await accessToken()
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`)
-  }
-
-  let response: Response
   try {
-    response = await fetch(`${baseUrl}${path}`, {
+    const response = await request<LoginResponse>(
+      REFRESH_PATH,
+      {
+        method: "POST",
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      },
+      CORE_API_URL,
+      false
+    )
+    updateTokens(response)
+    return response.access_token
+  } catch (error) {
+    if (error instanceof CoreApiError && REJECTED_REFRESH_STATUSES.has(error.status)) {
+      clearSession()
+      return null
+    }
+    throw error
+  }
+}
+
+function redirectToLogin() {
+  if (typeof window !== "undefined" && window.location.pathname !== "/") {
+    window.location.replace("/")
+  }
+}
+
+async function send(
+  url: string,
+  init: RequestInit | undefined,
+  headers: Headers
+) {
+  try {
+    return await fetch(url, {
       ...init,
       cache: "no-store",
       headers,
     })
   } catch {
     throw new CoreApiError("Không kết nối được máy chủ. Vui lòng thử lại.", 0)
+  }
+}
+
+export async function request<T>(
+  path: string,
+  init?: RequestInit,
+  baseUrl = CORE_API_URL,
+  authenticate = true
+): Promise<T> {
+  const url = `${baseUrl}${path}`
+  const headers = new Headers(init?.headers)
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json")
+  }
+
+  const useSession = authenticate && !headers.has("Authorization")
+  if (useSession) {
+    const token = await accessToken()
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`)
+    }
+  }
+
+  let response = await send(url, init, headers)
+
+  if (useSession && response.status === 401) {
+    const token = useAuthStore.getState().refreshToken
+      ? await refreshAccessToken()
+      : null
+    if (!token) {
+      useAuthStore.getState().clearSession()
+      redirectToLogin()
+      throw new CoreApiError(SESSION_EXPIRED_MESSAGE, 401)
+    }
+    headers.set("Authorization", `Bearer ${token}`)
+    response = await send(url, init, headers)
   }
 
   if (!response.ok) {
@@ -72,22 +174,23 @@ export async function request<T>(
     return undefined as T
   }
 
-  return (await response.json()) as T
+  const body: unknown = await response.json()
+  return (isApiEnvelope<T>(body) ? body.data : body) as T
 }
 
-export function identityRequest<T>(path: string, init?: RequestInit) {
-  return request<T>(path, init, IDENTITY_API_URL)
+function isApiEnvelope<T>(body: unknown): body is ApiEnvelope<T> {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    "success" in body &&
+    "data" in body
+  )
 }
 
-export function loadErrorMessage(
-  error: unknown,
-  service: "identity" | "core"
-) {
+export function loadErrorMessage(error: unknown) {
   if (error instanceof CoreApiError && error.status > 0) {
     return error.message
   }
 
-  return service === "identity"
-    ? "Không kết nối được máy chủ identity. Vui lòng thử lại."
-    : "Không kết nối được máy chủ core. Vui lòng thử lại."
+  return "Không kết nối được máy chủ core. Vui lòng thử lại."
 }

@@ -1,22 +1,19 @@
 "use client"
 
+import { useSyncExternalStore } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   AppWindowIcon,
   BusIcon,
-  CalendarClockIcon,
   LayoutDashboardIcon,
   LogOutIcon,
-  MapIcon,
+  MapPinIcon,
   SettingsIcon,
   ShieldCheckIcon,
-  TicketIcon,
-  UserCogIcon,
   UsersIcon,
 } from "lucide-react"
 
-import { logoutAction } from "@/actions/auth"
 import {
   Sidebar,
   SidebarContent,
@@ -30,21 +27,29 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { logout } from "@/service/auth"
+import { useAuthStore } from "@/stores/auth-store"
 
 const navMain = [
   { title: "Tổng quan", url: "/dashboard", icon: LayoutDashboardIcon },
-  { title: "Nhà xe", url: "/dashboard/operators", icon: BusIcon },
-  { title: "Tuyến xe", url: "/dashboard/routes", icon: MapIcon },
-  { title: "Chuyến xe", url: "/dashboard/trips", icon: CalendarClockIcon },
-  { title: "Vé", url: "/dashboard/tickets", icon: TicketIcon },
+  { title: "Nhà xe", url: "/dashboard/companies", icon: BusIcon },
+  { title: "Điểm dừng", url: "/dashboard/points", icon: MapPinIcon },
 ]
 
 const navSystem = [
-  { title: "Tài khoản", url: "/dashboard/accounts", icon: UserCogIcon },
-  { title: "Chức năng", url: "/dashboard/permissions", icon: AppWindowIcon },
   { title: "Người dùng", url: "/dashboard/users", icon: UsersIcon },
+  { title: "Chức năng", url: "/dashboard/permissions", icon: AppWindowIcon },
   { title: "Cài đặt", url: "/dashboard/settings", icon: SettingsIcon },
 ]
+
+/** The account is persisted in browser storage, so the server render never has it. */
+function useSignedInAccount() {
+  return useSyncExternalStore(
+    useAuthStore.subscribe,
+    () => useAuthStore.getState().account,
+    () => null
+  )
+}
 
 function isNavActive(pathname: string, url: string) {
   if (url === "/dashboard") {
@@ -56,6 +61,20 @@ function isNavActive(pathname: string, url: string) {
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
+  const clearSession = useAuthStore((state) => state.clearSession)
+  const account = useSignedInAccount()
+  const displayName = account?.full_name?.trim() || account?.username || ""
+
+  function handleLogout() {
+    const { refreshToken } = useAuthStore.getState()
+    clearSession()
+    router.replace("/")
+    if (refreshToken) {
+      // Best effort: the local session is already gone even if the server is unreachable.
+      void logout(refreshToken).catch(() => undefined)
+    }
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -120,13 +139,31 @@ export function AppSidebar() {
 
       <SidebarFooter className="pb-3">
         <SidebarMenu>
-          <SidebarMenuItem>
-            <form action={logoutAction}>
-              <SidebarMenuButton type="submit" tooltip="Đăng xuất">
-                <LogOutIcon />
-                <span>Đăng xuất</span>
+          {account ? (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                render={<div />}
+                size="lg"
+                tooltip={`${displayName} (${account.username})`}
+                className="cursor-default hover:bg-transparent hover:text-sidebar-foreground active:bg-transparent active:text-sidebar-foreground"
+              >
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent text-sm font-medium text-sidebar-accent-foreground uppercase">
+                  {displayName.charAt(0)}
+                </div>
+                <div className="grid min-w-0 flex-1 leading-tight">
+                  <span className="truncate font-medium">{displayName}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {account.username}
+                  </span>
+                </div>
               </SidebarMenuButton>
-            </form>
+            </SidebarMenuItem>
+          ) : null}
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={handleLogout} tooltip="Đăng xuất">
+              <LogOutIcon />
+              <span>Đăng xuất</span>
+            </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
